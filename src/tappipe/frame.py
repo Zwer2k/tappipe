@@ -28,17 +28,36 @@ class frame:
         self.bytes = bytearray(bytes)
         self.decoded = {"address": None, "type": None}
         self.processor = None
+
+        # Remove start frame marker (0xFF 0x7E 0x07 or 0x7E 0x07)
+        if len(self.bytes) >= 3 and self.bytes[0:3] == bytearray([0xFF, 0x7E, 0x07]):
+            self.bytes = self.bytes[3:]
+        elif len(self.bytes) >= 2 and self.bytes[0:2] == bytearray([0x7E, 0x07]):
+            self.bytes = self.bytes[2:]
+
+        # Remove end frame marker (0x7E 0x08)
+        if len(self.bytes) >= 2 and self.bytes[-2:] == bytearray([0x7E, 0x08]):
+            self.bytes = self.bytes[:-2]
+
+        # Now apply escape sequences to the frame body
         self.escape()
-        if len(self.bytes) < 12:
-            _LOGGER.debug("Frame too short")
+
+        # Minimum frame: 2 bytes address + 2 bytes type + 2 bytes CRC = 6 bytes
+        if len(self.bytes) < 6:
+            _LOGGER.debug("Frame too short: %d bytes", len(self.bytes))
             return
+
+        # Check CRC (covers address + type + payload, last 2 bytes are CRC)
         if self.checkCRC() == False:
             _LOGGER.debug("CRC Failed")
             return
+
+        # Parse address and type from the frame
         keys = ["address", "type"]
-        values = struct.unpack(">xxx2s2s", self.bytes[0:7])
+        values = struct.unpack(">2s2s", self.bytes[0:4])
         self.decoded = dict(zip(keys, values))
-        self.decoded["data"] = bytearray(self.bytes[7:-4])
+        # Data is everything between type and CRC
+        self.decoded["data"] = bytearray(self.bytes[4:-2])
 
     def setDebug(self, debug):
         self.debug = debug
@@ -48,11 +67,13 @@ class frame:
 
     def checkCRC(self):
         _LOGGER.debug("Frame Bytes %s", stringhex(self.bytes))
-        crc_val = (self.bytes[-4] << 8) + self.bytes[-3]
+        # CRC is the last 2 bytes, in big-endian format
+        crc_val = (self.bytes[-2] << 8) + self.bytes[-1]
         try:
-            test = crc(self.bytes[3:-4])
+            # CRC covers everything except the last 2 bytes (the CRC itself)
+            test = crc(self.bytes[:-2])
             crc_result = test.check()
-            _LOGGER.debug("CRC From Frame is %04x", crc_result)
+            _LOGGER.debug("CRC From Frame is %04x, Expected %04x", crc_result, crc_val)
         except Exception as e:
             _LOGGER.error("Fehler bei CRC: %s", e)
             self.failedCRC = True
@@ -78,13 +99,49 @@ class frame:
         return self.decoded["type"]
 
     def process(self):
-        match self.getType():
-            case t if t == frametype.RECV_RESP.value:
-                _LOGGER.debug("Frame Type is RECV_RESP")
-                self.processor = recv_resp(self, self.decoded["data"])
-            case t if t == frametype.CMD_RESP.value:
-                _LOGGER.debug("Frame Type is CMD_RESP")
-                self.processor = cmd_resp(self, self.decoded["data"])
-            case t:
-                _LOGGER.debug(f"Unknown frame type: {t!r}")
-                self.processor = None
+        t = self.getType()
+        if t == frametype.RECV_REQ.value:
+            _LOGGER.info("Frame Type is RECV_REQ")
+        elif t == frametype.RECV_RESP.value:
+            _LOGGER.info("Frame Type is RECV_RESP")
+            self.processor = recv_resp(self, self.decoded["data"])
+        elif t == frametype.CMD_REQ.value:
+            _LOGGER.info("Frame Type is CMD_REQ")
+        elif t == frametype.CMD_RESP.value:
+            _LOGGER.info("Frame Type is CMD_RESP")
+            self.processor = cmd_resp(self, self.decoded["data"])
+        elif t == frametype.PING_REQ.value:
+            _LOGGER.info("Frame Type is PING_REQ")
+        elif t == frametype.PING_RESP.value:
+            _LOGGER.info("Frame Type is PING_RESP")
+        elif t == frametype.ENUM_START_REQ.value:
+            _LOGGER.info("Frame Type is ENUM_START_REQ")
+        elif t == frametype.ENUM_START_RESP.value:
+            _LOGGER.info("Frame Type is ENUM_START_RESP")
+        elif t == frametype.ENUM_REQ.value:
+            _LOGGER.info("Frame Type is ENUM_REQ")
+        elif t == frametype.ENUM_RESP.value:
+            _LOGGER.info("Frame Type is ENUM_RESP")
+        elif t == frametype.ASSIGN_ID_REQ.value:
+            _LOGGER.info("Frame Type is ASSIGN_ID_REQ")
+        elif t == frametype.ASSIGN_ID_RESP.value:
+            _LOGGER.info("Frame Type is ASSIGN_ID_RESP")
+        elif t == frametype.IDENTIFY_REQ.value:
+            _LOGGER.info("Frame Type is IDENTIFY_REQ")
+        elif t == frametype.IDENTIFY_RESP.value:
+            _LOGGER.info("Frame Type is IDENTIFY_RESP")
+        elif t == frametype.UNKNOWN_REQ.value:
+            _LOGGER.info("Frame Type is UNKNOWN_REQ")
+        elif t == frametype.UNKNOWN_RESP.value:
+            _LOGGER.info("Frame Type is UNKNOWN_RESP")
+        elif t == frametype.VERSION_REQ.value:
+            _LOGGER.info("Frame Type is VERSION_REQ")
+        elif t == frametype.VERSION_RESP.value:
+            _LOGGER.info("Frame Type is VERSION_RESP")
+        elif t == frametype.ENUM_END_REQ.value:
+            _LOGGER.info("Frame Type is ENUM_END_REQ")
+        elif t == frametype.ENUM_END_RESP.value:
+            _LOGGER.info("Frame Type is ENUM_END_RESP")
+        else:
+            _LOGGER.info(f"Unknown frame type: {t!r}")
+            self.processor = None

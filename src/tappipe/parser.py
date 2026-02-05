@@ -7,7 +7,10 @@ _LOGGER = logging.getLogger(__name__)
 
 class parser:
     bytes = []
-    startFrame = bytearray([0xFF, 0x7E, 0x07])
+    # Search for the common part: 0x7E 0x07 (present in both controller and gateway frames)
+    # Controller frames: 0xFF 0x7E 0x07
+    # Gateway/Optimizer frames: 0x7E 0x07
+    startFrame = bytearray([0x7E, 0x07])
     endFrame = bytearray([0x7E, 0x08])
 
     def __init__(self, bytes=[]):
